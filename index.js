@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 5000;
 // Enable CORS for all origins or just localhost
 app.use(
   cors({
-    origin: "http://localhost:3000", // You can also set it to '*' to allow all origins, but this is not recommended for production
+    origin: "http://localhost:3000",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: [
       "Content-Type",
@@ -38,12 +38,15 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Proxy to Local Stable Diffusion API
 // app.post("/generate", async (req, res) => {
+//   console.log("Generate request sent from client to server : " + req.body);
 //   try {
 //     const response = await axios.post(
-//       "http://127.0.0.1:7860/sdapi/v1/txt2img",
-//       req.body
+//       `${SD_API_URL}/sdapi/v1/txt2img`,
+//       req.body,
+//       {
+//         headers: { "ngrok-skip-browser-warning": "true" }, // Add this header
+//       }
 //     );
 //     res.json(response.data);
 //   } catch (error) {
@@ -56,7 +59,21 @@ app.post("/generate", async (req, res) => {
   try {
     const response = await axios.post(
       `${SD_API_URL}/sdapi/v1/txt2img`,
-      req.body,
+      {
+        prompt: req.body.prompt || "",
+        negative_prompt: req.body.negative_prompt || "",
+        width: req.body.width,
+        height: req.body.height,
+        steps: req.body.steps || 20,
+        cfg_scale: req.body.cfg_scale || 7,
+        sampler_name: req.body.sampler_name || "DPM++ 2M", // Fixed sampler name
+        scheduler: req.body.scheduler || "Automatic",
+        override_settings: {
+          sd_model_checkpoint:
+            req.body.override_settings.sd_model_checkpoint ||
+            "xsarchitectural_v11.ckpt",
+        },
+      },
       {
         headers: { "ngrok-skip-browser-warning": "true" }, // Add this header
       }
@@ -74,9 +91,11 @@ app.post("/scribble", async (req, res) => {
       negative_prompt: req.body.negative_prompt || "",
       width: req.body.width,
       height: req.body.height,
-      steps: req.body.steps,
+      steps: req.body.steps || 20,
       cfg_scale: req.body.cfg_scale || 7,
       sampler_name: req.body.sampler_name || "DPM++ 2M", // Fixed sampler name
+      scheduler: req.body.scheduler || "Automatic",
+
       alwayson_scripts: {
         controlnet: {
           args: [
@@ -85,6 +104,13 @@ app.post("/scribble", async (req, res) => {
               image: req.body.input_image,
               module: "invert",
               model: "control_v11p_sd15_scribble",
+              weight: req.body.weight || 1.0,
+              lowvram: req.body.lowvram || false,
+              guidance_start: req.body.guidance_start || 0.0,
+              guidance_end: req.body.guidance_end || 1.0,
+              pixel_perfect: req.body.pixel_perfect || false,
+              resize_mode: req.body.resize_mode || "Scale to Fit (Inner Fit)",
+              control_mode: req.body.control_mode || "Balanced",
             },
           ],
         },
@@ -118,11 +144,17 @@ app.post("/depth", async (req, res) => {
 
     const payload = {
       prompt: req.body.prompt || "snowy background outside the windows", // Specific localized change
+      negative_prompt: req.body.negative_prompt || "",
+      resize_mode: req.body.resize_mode || 0,
+      width: req.body.width,
+      height: req.body.height,
+
       init_images: [initImage],
       denoising_strength: req.body.denoising_strength || 0.75,
       cfg_scale: req.body.cfg_scale || 7,
       steps: req.body.steps || 20,
       sampler_name: req.body.sampler_name || "DPM++ 2M", // Better for subtle edits
+      scheduler: req.body.scheduler || "Automatic",
       alwayson_scripts: {
         controlnet: {
           args: [
@@ -133,6 +165,12 @@ app.post("/depth", async (req, res) => {
               model: "control_v11f1p_sd15_depth",
               weight: req.body.weight || 1.0, // Higher weight preserves structure
               control_mode: "Balanced", // Prioritize depth map
+              lowvram: req.body.lowvram || false,
+              pixel_perfect: req.body.pixel_perfect || false,
+              guidance_start: req.body.guidance_start || 0.0,
+              guidance_end: req.body.guidance_end || 1.0,
+              resize_mode: req.body.resize_mode || "Scale to Fit (Inner Fit)",
+              control_mode: req.body.control_mode || "Balanced",
               processor_res: req.body.width || 512, // Match input resolution
             },
           ],
@@ -156,117 +194,6 @@ app.post("/depth", async (req, res) => {
   }
 });
 
-// app.post("/depth", async (req, res) => {
-//   try {
-//     const payload = {
-//       prompt: req.body.prompt || "",
-//       negative_prompt: req.body.negative_prompt || "",
-//       width: req.body.width,
-//       height: req.body.height,
-//       steps: req.body.steps || 20,
-//       cfg_scale: req.body.cfg_scale || 7,
-//       denoising_strength: req.body.denoising_strength || 0.75, // Crucial for img2img
-//       sampler_name: req.body.sampler_name || "DPM++ 2M",
-//       init_images: req.body.init_images, // Base64 of source image
-//       alwayson_scripts: {
-//         controlnet: {
-//           args: [
-//             {
-//               enabled: true,
-//               image: req.body.init_images, // Base64 depth map
-//               module: "depth_midas", // Use "depth_midas" if you need auto-depth
-//               model: "control_v11f1p_sd15_depth", // Depth model
-//               control_mode: "Balanced",
-//               processor_res: 512, // Resolution for depth processing
-//             },
-//           ],
-//         },
-//       },
-//     };
-
-//     const response = await axios.post(
-//       `${SD_API_URL}/sdapi/v1/img2img`, // Changed to img2img endpoint
-//       payload,
-//       {
-//         headers: {
-//           "Content-Type": "application/json",
-//           "ngrok-skip-browser-warning": "true",
-//         },
-//       }
-//     );
-
-//     res.json(response.data);
-//   } catch (error) {
-//     console.error("Depth Error:", error.response?.data || error.message);
-//     res.status(500).json({ error: "Depth processing failed" });
-//   }
-// });
-
-// app.post("/depth", async (req, res) => {
-//   //console.log("Depth request sent from client to server : " + req.body);
-//   try {
-//     const payload = {
-//       prompt: req.body.prompt || "",
-//       init_images: req.body.init_images,
-//       negative_prompt: req.body.negative_prompt || "",
-//       width: req.body.width,
-//       height: req.body.height,
-//       steps: req.body.steps || 20,
-//       cfg_scale: req.body.cfg_scale || 7,
-//       sampler_name: req.body.sampler_name || "DPM++ 2M", // Fixed sampler name
-//       alwayson_scripts: {
-//         controlnet: {
-//           args: [
-//             {
-//               enabled: true,
-//               image: req.body.init_images,
-//               module: "depth_midas",
-//               model: "control_v11f1p_sd15_depth",
-//             },
-//           ],
-//         },
-//       },
-//     };
-
-//     const response = await axios.post(
-//       `${SD_API_URL}/sdapi/v1/img2img`,
-//       payload,
-//       {
-//         headers: {
-//           "Content-Type": "application/json",
-//           "ngrok-skip-browser-warning": "true",
-//         },
-//       }
-//     );
-
-//     res.json(response.data);
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// app.get("/progress", async (req, res) => {
-//   try {
-//     const response = await axios.get("http://127.0.0.1:7860/sdapi/v1/progress");
-//     res.json({
-//       progress: response.data.progress, // Real progress from Stable Diffusion
-//       eta: response.data.eta_relative, // Estimated time remaining
-//       completed: response.data.progress >= 1.0,
-//     });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// app.get("/progress", async (req, res) => {
-//   try {
-//     const response = await axios.get("http://127.0.0.1:7860/sdapi/v1/progress");
-//     res.json(response.data);
-//   } catch (error) {
-//     res.status(500).json({ error: "Error fetching progress" });
-//   }
-// });
-
 app.get("/progress", async (req, res) => {
   console.log("Progress request sent from client to server : " + req.body);
   try {
@@ -278,23 +205,6 @@ app.get("/progress", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// app.get("/ngrok-url", async (req, res) => {
-//   try {
-//     const response = await axios.get("http://127.0.0.1:4040/api/tunnels");
-//     const tunnels = response.data.tunnels;
-//     if (tunnels.length > 0) {
-//       const ngrokUrl = tunnels[0].public_url;
-//       console.log("Returning ngrok URL:", ngrokUrl);
-//       return res.json({ ngrokUrl });
-//     } else {
-//       return res.status(404).json({ error: "No active tunnels found." });
-//     }
-//   } catch (error) {
-//     console.error("Error fetching ngrok URL:", error.message);
-//     return res.status(500).json({ error: "Internal server error" });
-//   }
-// });
 
 // Function to fetch ngrok URL and update Firebase
 async function updateNgrokUrl() {
@@ -317,24 +227,10 @@ async function updateNgrokUrl() {
 }
 
 // Call the update function when index.js starts
-//updateNgrokUrl();
-
-// app.post("/img2img", async (req, res) => {
-//   try {
-//     const response = await axios.post(
-//       `${SD_API_URL}/sdapi/v1/img2img`,
-//       req.body, // Expecting image data & parameters in the request
-//       {
-//         headers: { "ngrok-skip-browser-warning": "true" },
-//       }
-//     );
-//     res.json(response.data);
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
+updateNgrokUrl();
 
 // app.post("/inpaint", async (req, res) => {
+//   console.log("Inpaint request sent from client to server : " + req.body);
 //   try {
 //     const { init_images, mask, ...otherParams } = req.body;
 
@@ -349,10 +245,10 @@ async function updateNgrokUrl() {
 //     }
 
 //     const payload = {
-//       init_images, // Base64-encoded image array
-//       mask: mask || "", // Optional: Base64-encoded mask
-//       inpainting_fill: mask ? req.body.inpainting_fill || 1 : undefined, // Set inpainting_fill only if mask exists
-//       ...otherParams, // Other img2img parameters (like denoising_strength, steps, width, height, etc.)
+//       init_images,
+//       mask: mask || "",
+//       inpainting_fill: mask ? req.body.inpainting_fill || 1 : undefined,
+//       ...otherParams,
 //     };
 
 //     const response = await axios.post(
@@ -372,23 +268,53 @@ async function updateNgrokUrl() {
 app.post("/inpaint", async (req, res) => {
   console.log("Inpaint request sent from client to server : " + req.body);
   try {
-    const { init_images, mask, ...otherParams } = req.body;
+    // const { init_images, mask, ...otherParams } = req.body;
 
-    if (
-      !init_images ||
-      !Array.isArray(init_images) ||
-      init_images.length === 0
-    ) {
+    // if (
+    //   !init_images ||
+    //   !Array.isArray(init_images) ||
+    //   init_images.length === 0
+    // ) {
+    //   return res
+    //     .status(400)
+    //     .json({ error: "init_images is required and must be an array." });
+    // }
+
+    const initImage = req.body.init_images;
+
+    if (!initImage || !Array.isArray(initImage) || initImage.length === 0) {
       return res
         .status(400)
         .json({ error: "init_images is required and must be an array." });
     }
 
+    // const payload = {
+    //   init_images,
+    //   mask: mask || "",
+    //   inpainting_fill: mask ? req.body.inpainting_fill || 1 : undefined,
+    //   ...otherParams,
+    // };
+
     const payload = {
-      init_images,
-      mask: mask || "",
-      inpainting_fill: mask ? req.body.inpainting_fill || 1 : undefined,
-      ...otherParams,
+      init_images: initImage,
+      mask: req.body.mask,
+      prompt: req.body.prompt,
+      negative_prompt: req.body.negative_prompt,
+      steps: req.body.steps,
+      sampler_name: req.body.sampler_name,
+      scheduler: req.body.scheduler,
+      denoising_strength: req.body.denoising_strength,
+      cfg_scale: req.body.cfg_scale,
+      width: req.body.width,
+      height: req.body.height,
+      resize_mode: req.body.resize_mode,
+      mask_blur: req.body.mask_blur,
+      mask_mode: req.body.mask_mode,
+      inpainting_fill: req.body.inpainting_fill,
+      inpaint_area: req.body.inpaint_area,
+      inpaint_full_res_padding: req.body.inpaint_full_res_padding,
+      inpainting_mask_invert: req.body.inpainting_mask_invert,
+      soft_inpainting: req.body.soft_inpainting,
     };
 
     const response = await axios.post(

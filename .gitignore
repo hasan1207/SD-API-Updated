@@ -1,0 +1,33 @@
+# Ignore Node.js dependencies
+node_modules/
+
+# Ignore environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# Ignore Firebase credentials
+service-account-private-key-firebase-realtime-db.json
+firebase-credentials/*.json
+
+# Ignore build/output directories
+dist/
+build/
+out/
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore log files
+*.log
+logs/
+
+# Ignore dependency caches
+.cache/
+.yarn/

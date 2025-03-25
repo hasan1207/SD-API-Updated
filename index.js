@@ -38,6 +38,68 @@ admin.initializeApp({
 
 const db = admin.database();
 
+const { exec } = require("child_process");
+
+// function freeVRAM() {
+//   exec("nvidia-smi -r", (error, stdout, stderr) => {
+//     if (error) {
+//       console.error(`Error freeing VRAM: ${error.message}`);
+//       return;
+//     }
+//     if (stderr) {
+//       console.error(`stderr: ${stderr}`);
+//       return;
+//     }
+//     console.log("VRAM cleared successfully:", stdout);
+//   });
+// }
+
+// Function to clear GPU cache by calling a custom API endpoint
+function checkGpuMemory() {
+  exec(
+    "nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits",
+    (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Error checking GPU memory: ${error.message}`);
+        return;
+      }
+      const freeMemoryMB = parseInt(stdout.trim(), 10);
+      console.log(`Free GPU Memory: ${freeMemoryMB} MB`);
+
+      // If free memory is below a threshold (e.g., 100 MB), take action
+      if (freeMemoryMB < 100) {
+        console.warn(
+          "Low GPU memory detected. Consider lowering resolution or clearing cache."
+        );
+        // Optionally, trigger the cache-clear endpoint:
+        //clearGpuCache();
+      }
+    }
+  );
+}
+setInterval(checkGpuMemory, 0.5 * 60 * 1000);
+
+function freeVRAM() {
+  exec("nvidia-smi", (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error listing GPU processes: ${error.message}`);
+      return;
+    }
+    console.log("Current GPU usage:\n", stdout);
+
+    // Kill all Python processes (assuming Stable Diffusion runs in Python)
+    exec("taskkill /F /IM python.exe", (err, out, errout) => {
+      if (err) {
+        console.error("Error killing Python processes:", err.message);
+        return;
+      }
+      console.log("Successfully freed up VRAM by killing Python processes.");
+    });
+  });
+}
+
+//setInterval(freeVRAM, 10 * 60 * 1000); // Runs every 10 minutes
+
 // app.post("/generate", async (req, res) => {
 //   console.log("Generate request sent from client to server : " + req.body);
 //   try {
@@ -53,6 +115,21 @@ const db = admin.database();
 //     res.status(500).json({ error: error.message });
 //   }
 // });
+
+app.post("/setModel", async (req, res) => {
+  const newModel = req.body.sd_model_checkpoint;
+
+  try {
+    const response = await axios.post(`${SD_API_URL}/sdapi/v1/options`, {
+      sd_model_checkpoint: newModel,
+    });
+
+    res.json({ message: `Model changed to ${newModel}`, data: response.data });
+  } catch (error) {
+    console.error("Error changing model:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.post("/generate", async (req, res) => {
   console.log("Generate request sent from client to server : " + req.body);
@@ -70,8 +147,9 @@ app.post("/generate", async (req, res) => {
         scheduler: req.body.scheduler || "Automatic",
         override_settings: {
           sd_model_checkpoint:
-            req.body.override_settings.sd_model_checkpoint ||
-            "xsarchitectural_v11.ckpt",
+            req.body.override_settings?.sd_model_checkpoint ??
+            "xsarchitectural_v11.ckpt" ??
+            "realisticVisionV60B1_v51HyperVAE.safetensors",
         },
       },
       {
@@ -95,6 +173,12 @@ app.post("/scribble", async (req, res) => {
       cfg_scale: req.body.cfg_scale || 7,
       sampler_name: req.body.sampler_name || "DPM++ 2M", // Fixed sampler name
       scheduler: req.body.scheduler || "Automatic",
+      override_settings: {
+        sd_model_checkpoint:
+          req.body.override_settings?.sd_model_checkpoint ??
+          "realisticVisionV60B1_v51HyperVAE.safetensors" ??
+          "xsarchitectural_v11.ckpt",
+      },
 
       alwayson_scripts: {
         controlnet: {
@@ -105,7 +189,7 @@ app.post("/scribble", async (req, res) => {
               module: "invert",
               model: "control_v11p_sd15_scribble",
               weight: req.body.weight || 1.0,
-              lowvram: req.body.lowvram || false,
+              low_vram: req.body.low_vram || false,
               guidance_start: req.body.guidance_start || 0.0,
               guidance_end: req.body.guidance_end || 1.0,
               pixel_perfect: req.body.pixel_perfect || false,
@@ -143,7 +227,7 @@ app.post("/depth", async (req, res) => {
       : req.body.init_image;
 
     const payload = {
-      prompt: req.body.prompt || "snowy background outside the windows", // Specific localized change
+      prompt: req.body.prompt || "", // Specific localized change
       negative_prompt: req.body.negative_prompt || "",
       resize_mode: req.body.resize_mode || 0,
       width: req.body.width,
@@ -155,6 +239,12 @@ app.post("/depth", async (req, res) => {
       steps: req.body.steps || 20,
       sampler_name: req.body.sampler_name || "DPM++ 2M", // Better for subtle edits
       scheduler: req.body.scheduler || "Automatic",
+      override_settings: {
+        sd_model_checkpoint:
+          req.body.override_settings?.sd_model_checkpoint ??
+          "realisticVisionV60B1_v51HyperVAE.safetensors" ??
+          "xsarchitectural_v11.ckpt",
+      },
       alwayson_scripts: {
         controlnet: {
           args: [
@@ -165,13 +255,13 @@ app.post("/depth", async (req, res) => {
               model: "control_v11f1p_sd15_depth",
               weight: req.body.weight || 1.0, // Higher weight preserves structure
               control_mode: "Balanced", // Prioritize depth map
-              lowvram: req.body.lowvram || false,
+              low_vram: req.body.low_vram || false,
               pixel_perfect: req.body.pixel_perfect || false,
               guidance_start: req.body.guidance_start || 0.0,
               guidance_end: req.body.guidance_end || 1.0,
               resize_mode: req.body.resize_mode || "Scale to Fit (Inner Fit)",
               control_mode: req.body.control_mode || "Balanced",
-              processor_res: req.body.width || 512, // Match input resolution
+              processor_res: req.body.processor_resolution || 512, // Match input resolution
             },
           ],
         },
@@ -227,6 +317,7 @@ async function updateNgrokUrl() {
 }
 
 // Call the update function when index.js starts
+
 updateNgrokUrl();
 
 // app.post("/inpaint", async (req, res) => {
@@ -303,6 +394,12 @@ app.post("/inpaint", async (req, res) => {
       steps: req.body.steps,
       sampler_name: req.body.sampler_name,
       scheduler: req.body.scheduler,
+      override_settings: {
+        sd_model_checkpoint:
+          req.body.override_settings?.sd_model_checkpoint ??
+          "xsarchitectural_v11.ckpt" ??
+          "realisticVisionV60B1_v51HyperVAE.safetensors",
+      },
       denoising_strength: req.body.denoising_strength,
       cfg_scale: req.body.cfg_scale,
       width: req.body.width,
